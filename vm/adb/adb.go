@@ -293,6 +293,9 @@ func (inst *instance) Forward(port int) (string, error) {
 	return "", err
 }
 
+func (inst *instance) ChangeSSHUser(newUser string) {
+}
+
 func (inst *instance) adb(args ...string) ([]byte, error) {
 	if inst.debug {
 		log.Logf(0, "executing adb %+v", args)

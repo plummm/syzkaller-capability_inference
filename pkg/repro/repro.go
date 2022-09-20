@@ -22,10 +22,11 @@ import (
 )
 
 type Result struct {
-	Prog     *prog.Prog
-	Duration time.Duration
-	Opts     csource.Options
-	CRepro   bool
+	Prog         *prog.Prog
+	Duration     time.Duration
+	Opts         csource.Options
+	CRepro       bool
+	LowPrivilege bool
 	// Information about the final (non-symbolized) crash that we reproduced.
 	// Can be different from what we started reproducing.
 	Report *report.Report
@@ -164,7 +165,7 @@ func Run(crashLog []byte, cfg *mgrconfig.Config, features *host.Features, report
 			if res.CRepro {
 				_, err = ctx.testCProg(res.Prog, res.Duration, res.Opts)
 			} else {
-				_, err = ctx.testProg(res.Prog, res.Duration, res.Opts)
+				_, err = ctx.testProg(res.Prog, res.Duration, res.Opts, true)
 			}
 			if err != nil {
 				return nil, nil, err
@@ -239,6 +240,7 @@ func (ctx *context) repro(entries []*prog.LogEntry, crashStart int) (*Result, er
 		return nil, err
 	}
 
+	res, _ = ctx.testPrivilege(res)
 	// Try extracting C repro without simplifying options first.
 	res, err = ctx.extractC(res)
 	if err != nil {
@@ -322,15 +324,30 @@ func (ctx *context) extractProgSingle(entries []*prog.LogEntry, duration time.Du
 
 	opts := ctx.startOpts
 	for _, ent := range entries {
-		crashed, err := ctx.testProg(ent.P, duration, opts)
+		crashed, err := ctx.testProg(ent.P, duration, opts, true)
 		if err != nil {
 			return nil, err
 		}
+
 		if crashed {
 			res := &Result{
 				Prog:     ent.P,
 				Duration: duration * 3 / 2,
 				Opts:     opts,
+			}
+
+			p0 := ent.P.Clone()
+			for i := ent.Index; i < len(p0.Calls); i++ {
+				p0.RemoveCall(i)
+			}
+			p0.Calls = p0.Calls[:ent.Index]
+			crashedAgain, err := ctx.testProg(p0, duration, opts, true)
+			if err != nil {
+				return res, nil
+			}
+			if crashedAgain {
+				res.Prog = p0
+				ctx.reproLogf(3, "single: original reproducer has been simplified")
 			}
 			ctx.reproLogf(3, "single: successfully extracted reproducer")
 			return res, nil
@@ -351,7 +368,7 @@ func (ctx *context) extractProgBisect(entries []*prog.LogEntry, baseDuration tim
 
 	// Bisect the log to find multiple guilty programs.
 	entries, err := ctx.bisectProgs(entries, func(progs []*prog.LogEntry) (bool, error) {
-		return ctx.testProgs(progs, duration(len(progs)), opts)
+		return ctx.testProgs(progs, duration(len(progs)), opts, true)
 	})
 	if err != nil {
 		return nil, err
@@ -374,7 +391,7 @@ func (ctx *context) extractProgBisect(entries []*prog.LogEntry, baseDuration tim
 		prog.Calls = append(prog.Calls, entry.P.Calls...)
 	}
 	dur := duration(len(entries)) * 3 / 2
-	crashed, err := ctx.testProg(prog, dur, opts)
+	crashed, err := ctx.testProg(prog, dur, opts, true)
 	if err != nil {
 		return nil, err
 	}
@@ -402,7 +419,7 @@ func (ctx *context) minimizeProg(res *Result) (*Result, error) {
 
 	res.Prog, _ = prog.Minimize(res.Prog, -1, true,
 		func(p1 *prog.Prog, callIndex int) bool {
-			crashed, err := ctx.testProg(p1, res.Duration, res.Opts)
+			crashed, err := ctx.testProg(p1, res.Duration, res.Opts, true)
 			if err != nil {
 				ctx.reproLogf(0, "minimization failed with %v", err)
 				return false
@@ -410,6 +427,23 @@ func (ctx *context) minimizeProg(res *Result) (*Result, error) {
 			return crashed
 		})
 
+	return res, nil
+}
+
+func (ctx *context) testPrivilege(res *Result) (*Result, error) {
+	res.LowPrivilege = false
+	ctx.reproLogf(2, "testing program privilege")
+	crashed, err := ctx.testProg(res.Prog, res.Duration, res.Opts, false)
+	if err != nil {
+		ctx.reproLogf(0, "testing privilege failed with %v", err)
+		return res, err
+	}
+	if crashed {
+		res.LowPrivilege = true
+		log.Logf(0, "Run PoC as non-root user")
+	} else {
+		log.Logf(0, "Run PoC as root user")
+	}
 	return res, nil
 }
 
@@ -427,7 +461,7 @@ func (ctx *context) simplifyProg(res *Result) (*Result, error) {
 		if !simplify(&opts) || !checkOpts(&opts, ctx.timeouts, res.Duration) {
 			continue
 		}
-		crashed, err := ctx.testProg(res.Prog, res.Duration, opts)
+		crashed, err := ctx.testProg(res.Prog, res.Duration, opts, true)
 		if err != nil {
 			return nil, err
 		}
@@ -512,9 +546,9 @@ func checkOpts(opts *csource.Options, timeouts targets.Timeouts, timeout time.Du
 	return true
 }
 
-func (ctx *context) testProg(p *prog.Prog, duration time.Duration, opts csource.Options) (crashed bool, err error) {
+func (ctx *context) testProg(p *prog.Prog, duration time.Duration, opts csource.Options, root bool) (crashed bool, err error) {
 	entry := prog.LogEntry{P: p}
-	return ctx.testProgs([]*prog.LogEntry{&entry}, duration, opts)
+	return ctx.testProgs([]*prog.LogEntry{&entry}, duration, opts, root)
 }
 
 func (ctx *context) testWithInstance(callback func(inst *instance.ExecProgInstance) (rep *instance.RunResult,
@@ -532,12 +566,20 @@ func (ctx *context) testWithInstance(callback func(inst *instance.ExecProgInstan
 	if rep == nil {
 		return false, nil
 	}
+
+	if rep.Title != ctx.crashTitle {
+		ctx.reproLogf(2, "not the same crash: %v", ctx.crashTitle)
+		log.Logf(0, "%v not the same crash: %v", rep.Title, ctx.crashTitle)
+		return false, nil
+	}
 	if rep.Suppressed {
 		ctx.reproLogf(2, "suppressed program crash: %v", rep.Title)
+		log.Logf(0, "suppressed program crash: %v", rep.Title)
 		return false, nil
 	}
 	if ctx.crashType == report.MemoryLeak && rep.Type != report.MemoryLeak {
 		ctx.reproLogf(2, "not a leak crash: %v", rep.Title)
+		log.Logf(0, "not a leak crash: %v", rep.Title)
 		return false, nil
 	}
 	ctx.report = rep
@@ -552,7 +594,7 @@ func encodeEntries(entries []*prog.LogEntry) []byte {
 	return buf.Bytes()
 }
 
-func (ctx *context) testProgs(entries []*prog.LogEntry, duration time.Duration, opts csource.Options) (
+func (ctx *context) testProgs(entries []*prog.LogEntry, duration time.Duration, opts csource.Options, root bool) (
 	crashed bool, err error) {
 	if len(entries) == 0 {
 		return false, fmt.Errorf("no programs to execute")
@@ -571,9 +613,16 @@ func (ctx *context) testProgs(entries []*prog.LogEntry, duration time.Duration, 
 	}
 	ctx.reproLogf(2, "testing program (duration=%v, %+v): %s", duration, opts, program)
 	ctx.reproLogf(3, "detailed listing:\n%s", pstr)
-	return ctx.testWithInstance(func(inst *instance.ExecProgInstance) (*instance.RunResult, error) {
+
+	callback := func(inst *instance.ExecProgInstance) (*instance.RunResult, error) {
 		return inst.RunSyzProg(pstr, duration, opts)
-	})
+	}
+	if !root {
+		callback = func(inst *instance.ExecProgInstance) (*instance.RunResult, error) {
+			return inst.RunSyzProgLowPrivilege(pstr, duration, opts)
+		}
+	}
+	return ctx.testWithInstance(callback)
 }
 
 func (ctx *context) testCProg(p *prog.Prog, duration time.Duration, opts csource.Options) (crashed bool, err error) {

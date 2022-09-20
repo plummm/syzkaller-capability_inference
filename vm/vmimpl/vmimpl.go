@@ -14,10 +14,14 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/google/syzkaller/pkg/log"
 	"github.com/google/syzkaller/pkg/osutil"
 	"github.com/google/syzkaller/pkg/report"
@@ -59,6 +63,8 @@ type Instance interface {
 
 	// Close stops and destroys the VM.
 	Close()
+
+	ChangeSSHUser(newUser string)
 }
 
 // Infoer is an optional interface that can be implemented by Instance.
@@ -88,6 +94,8 @@ type BootError struct {
 	Title  string
 	Output []byte
 }
+
+var ImageFileLock = make([]*flock.Flock, 0)
 
 func MakeBootError(err error, output []byte) error {
 	switch err1 := err.(type) {
@@ -186,6 +194,48 @@ func UnusedTCPPort() int {
 			return port
 		}
 	}
+}
+
+func UnusedImage(image string, plock **flock.Flock) string {
+	if _, err := os.Stat(image); err == nil {
+		dir := filepath.Dir(image)
+		imageName := filepath.Base(image)
+		t := strings.Split(imageName, ".")
+
+		lockName := fmt.Sprintf("%v/%v.lock", dir, t[0])
+		fileLock := flock.New(lockName)
+		err := fileLock.Lock()
+		if err != nil {
+			log.Fatalf("failed to lock%v", err)
+		}
+		index := 0
+		for {
+			newImageName := t[0] + "-" + strconv.Itoa(index)
+			p := filepath.Join(dir, newImageName+"."+t[1])
+			imagelock := fmt.Sprintf("%v/%v.lock", dir, newImageName)
+			*plock = flock.New(imagelock)
+
+			locked, err := (*plock).TryLock()
+			if err != nil {
+				(*plock).Unlock()
+				log.Fatalf("failed to lock %v: %v", locked, err)
+			}
+			if locked {
+				//log.Logf(0, "acquiring lock %v: %v", imagelock, locked)
+				createSnapshot(image, p)
+				fileLock.Unlock()
+				return p
+			}
+
+			index++
+		}
+	}
+	return image
+}
+
+func createSnapshot(src, dst string) {
+	cmd := exec.Command("qemu-img", "create", "-f", "qcow2", "-b", src, dst)
+	cmd.Run()
 }
 
 // Escapes double quotes(and nested double quote escapes). Ignores any other escapes.

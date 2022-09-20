@@ -15,6 +15,25 @@
 #include <string.h>
 #include <time.h>
 
+#define IOCTL_MODULE_MONITOR 0x37777
+
+#define START_MODULE_MONITOR 0x1
+#define STOP_MODULE_MONITOR 0x2
+#define ADD_MODULE 0x3
+#define REMOVE_MODULE 0x4
+#define SET_FLAG 0x5
+#define CLEAR_LIST 0x6
+#define SHOW_MODULE_LIST 0x7
+#define ENABLE_DEBUG 0x77
+#define DISABLE_DEBUG 0x78
+
+struct module_monitor_msg {
+    int op;
+    char *module_name;
+	size_t module_name_len;
+    unsigned int flag;
+};
+
 #if !GOOS_windows
 #include <unistd.h>
 #endif
@@ -98,6 +117,7 @@ static NORETURN void doexit_thread(int status);
 // function and temporary enable it in your build by changing #if 0 below.
 // This function does not add \n at the end of msg as opposed to the previous functions.
 static PRINTF(1, 2) void debug(const char* msg, ...);
+static PRINTF(1, 2) void info(const char* msg, ...);
 void debug_dump_data(const char* data, int length);
 
 #if 0
@@ -446,6 +466,12 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
+	struct module_monitor_msg msg;
+    memset(&msg, 0, sizeof(struct module_monitor_msg));
+	msg.op = STOP_MODULE_MONITOR;
+    ioctl(0, IOCTL_MODULE_MONITOR, &msg);
+	//ioctl(0, IOCTL_MODULE_MONITOR, "MAGIC?!STOP\x00");
+
 	start_time_ms = current_time_ms();
 
 	os_init(argc, argv, (char*)SYZ_DATA_OFFSET, SYZ_NUM_PAGES * SYZ_PAGE_SIZE);
@@ -734,6 +760,11 @@ void realloc_output_data()
 // execute_one executes program stored in input_data.
 void execute_one()
 {
+	struct module_monitor_msg msg;
+    memset(&msg, 0, sizeof(struct module_monitor_msg));
+	msg.op = START_MODULE_MONITOR;
+    ioctl(0, IOCTL_MODULE_MONITOR, &msg);
+	//ioctl(0, IOCTL_MODULE_MONITOR, "MAGIC?!START\x00");
 #if SYZ_EXECUTOR_USES_SHMEM
 	realloc_output_data();
 	output_pos = output_data;
@@ -936,6 +967,11 @@ void execute_one()
 #if SYZ_HAVE_CLOSE_FDS
 	close_fds();
 #endif
+
+    memset(&msg, 0, sizeof(struct module_monitor_msg));
+	msg.op = STOP_MODULE_MONITOR;
+    ioctl(0, IOCTL_MODULE_MONITOR, &msg);
+	//ioctl(0, IOCTL_MODULE_MONITOR, "MAGIC?!STOP\x00");
 
 	write_extra_output();
 	// Check for new extra coverage in small intervals to avoid situation
@@ -1237,14 +1273,13 @@ void* worker_thread(void* arg)
 void execute_call(thread_t* th)
 {
 	const call_t* call = &syscalls[th->call_num];
-	debug("#%d [%llums] -> %s(",
-	      th->id, current_time_ms() - start_time_ms, call->name);
+	info("MAGIC?!CALL -> %s(", call->name);
 	for (int i = 0; i < th->num_args; i++) {
 		if (i != 0)
-			debug(", ");
-		debug("0x%llx", (uint64)th->args[i]);
+			info(", ");
+		info("0x%llx", (uint64)th->args[i]);
 	}
-	debug(")\n");
+	info(")\n");
 
 	int fail_fd = -1;
 	th->soft_fail_state = false;
@@ -1284,17 +1319,17 @@ void execute_call(thread_t* th)
 	for (int i = 0; i < th->call_props.rerun; i++)
 		NONFAILING(execute_syscall(call, th->args));
 
-	debug("#%d [%llums] <- %s=0x%llx",
+	info("#%d [%llums] <- %s=0x%llx",
 	      th->id, current_time_ms() - start_time_ms, call->name, (uint64)th->res);
 	if (th->res == (intptr_t)-1)
-		debug(" errno=%d", th->reserrno);
+		info(" errno=%d", th->reserrno);
 	if (flag_coverage)
-		debug(" cover=%u", th->cov.size);
+		info(" cover=%u", th->cov.size);
 	if (th->call_props.fail_nth > 0)
-		debug(" fault=%d", th->fault_injected);
+		info(" fault=%d", th->fault_injected);
 	if (th->call_props.rerun > 0)
-		debug(" rerun=%d", th->call_props.rerun);
-	debug("\n");
+		info(" rerun=%d", th->call_props.rerun);
+	info("\n");
 }
 
 #if SYZ_EXECUTOR_USES_SHMEM
@@ -1687,6 +1722,17 @@ void exitf(const char* msg, ...)
 	va_end(args);
 	fprintf(stderr, " (errno %d)\n", e);
 	doexit(0);
+}
+
+void info(const char* msg, ...)
+{
+	int err = errno;
+	va_list args;
+	va_start(args, msg);
+	vfprintf(stderr, msg, args);
+	va_end(args);
+	fflush(stderr);
+	errno = err;
 }
 
 void debug(const char* msg, ...)

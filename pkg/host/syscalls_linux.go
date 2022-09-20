@@ -432,38 +432,42 @@ func onlySandboxNoneOrNamespace(sandbox string) (bool, string) {
 }
 
 func isSupportedSocket(c *prog.Syscall) (bool, string) {
-	af, ok := c.Args[0].Type.(*prog.ConstType)
-	if !ok {
-		panic("socket family is not const")
-	}
-	fd, err := syscall.Socket(int(af.Val), 0, 0)
-	if fd != -1 {
-		syscall.Close(fd)
-	}
-	if err == syscall.ENOSYS {
-		return false, "socket syscall returns ENOSYS"
-	}
-	if err == syscall.EAFNOSUPPORT {
-		return false, "socket family is not supported (EAFNOSUPPORT)"
-	}
-	proto, ok := c.Args[2].Type.(*prog.ConstType)
-	if !ok {
-		return true, ""
-	}
-	var typ uint64
-	if arg, ok := c.Args[1].Type.(*prog.ConstType); ok {
-		typ = arg.Val
-	} else if arg, ok := c.Args[1].Type.(*prog.FlagsType); ok {
-		typ = arg.Vals[0]
-	} else {
-		return true, ""
-	}
-	fd, err = syscall.Socket(int(af.Val), int(typ), int(proto.Val))
-	if fd != -1 {
-		syscall.Close(fd)
-		return true, ""
-	}
-	return false, err.Error()
+	// Distro kernel load modules on demand,
+	// so we can't check by this method.
+	return true, ""
+	/*
+		af, ok := c.Args[0].Type.(*prog.ConstType)
+		if !ok {
+			panic("socket family is not const")
+		}
+		fd, err := syscall.Socket(int(af.Val), 0, 0)
+		if fd != -1 {
+			syscall.Close(fd)
+		}
+		if err == syscall.ENOSYS {
+			return false, "socket syscall returns ENOSYS"
+		}
+		if err == syscall.EAFNOSUPPORT {
+			return false, "socket family is not supported (EAFNOSUPPORT)"
+		}
+		proto, ok := c.Args[2].Type.(*prog.ConstType)
+		if !ok {
+			return true, ""
+		}
+		var typ uint64
+		if arg, ok := c.Args[1].Type.(*prog.ConstType); ok {
+			typ = arg.Val
+		} else if arg, ok := c.Args[1].Type.(*prog.FlagsType); ok {
+			typ = arg.Vals[0]
+		} else {
+			return true, ""
+		}
+		fd, err = syscall.Socket(int(af.Val), int(typ), int(proto.Val))
+		if fd != -1 {
+			syscall.Close(fd)
+			return true, ""
+		}
+		return false, err.Error()*/
 }
 
 func isSyzOpenProcfsSupported(c *prog.Syscall, target *prog.Target, sandbox string) (bool, string) {

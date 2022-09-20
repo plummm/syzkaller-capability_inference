@@ -14,6 +14,27 @@ import (
 // Maximum length of generated binary blobs inserted into the program.
 const maxBlobLen = uint64(100 << 10)
 
+func (p *Prog) MutateArgs(rs rand.Source, ncalls int, ct *ChoiceTable, corpus []*Prog) {
+	r := newRand(p.Target, rs)
+	if ncalls < len(p.Calls) {
+		ncalls = len(p.Calls)
+	}
+	ctx := &mutator{
+		p:      p,
+		r:      r,
+		ncalls: ncalls,
+		ct:     ct,
+		corpus: corpus,
+	}
+	n := len(p.Calls) - 1
+	ctx.mutateArgByCall(n)
+	p.sanitizeFix()
+	p.debugValidate()
+	if got := len(p.Calls); got < 1 || got > ncalls {
+		panic(fmt.Sprintf("bad number of calls after mutation: %v, want [1, %v]", got, ncalls))
+	}
+}
+
 // Mutate program p.
 //
 // p:       The program to mutate.
@@ -157,15 +178,9 @@ func (ctx *mutator) removeCall() bool {
 	return true
 }
 
-// Mutate an argument of a random call.
-func (ctx *mutator) mutateArg() bool {
+func (ctx *mutator) mutateArgByCall(idx int) bool {
 	p, r := ctx.p, ctx.r
 	if len(p.Calls) == 0 {
-		return false
-	}
-
-	idx := chooseCall(p, r)
-	if idx < 0 {
 		return false
 	}
 	c := p.Calls[idx]
@@ -199,6 +214,20 @@ func (ctx *mutator) mutateArg() bool {
 		}
 	}
 	return true
+}
+
+// Mutate an argument of a random call.
+func (ctx *mutator) mutateArg() bool {
+	p, r := ctx.p, ctx.r
+	if len(p.Calls) == 0 {
+		return false
+	}
+
+	idx := chooseCall(p, r)
+	if idx < 0 {
+		return false
+	}
+	return ctx.mutateArgByCall(idx)
 }
 
 // Select a call based on the complexity of the arguments.

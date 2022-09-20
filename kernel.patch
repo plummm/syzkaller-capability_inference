@@ -1,0 +1,281 @@
+diff --git a/fs/ioctl.c b/fs/ioctl.c
+index 504e69578112..01991a2c597e 100644
+--- a/fs/ioctl.c
++++ b/fs/ioctl.c
+@@ -22,11 +22,18 @@
+ #include <linux/mount.h>
+ #include <linux/fscrypt.h>
+ #include <linux/fileattr.h>
++#include <linux/monitor_helper.h>
++
++int monitor_module_flag = 0;
++int monitor_debug_flag = 0;
++DEFINE_MUTEX(monitor_module_lock);
++LIST_HEAD(module_list);
+ 
+ #include "internal.h"
+ 
+ #include <asm/ioctls.h>
+ 
++#define IOCTL_MODULE_MONITOR 0x37777
+ /* So that the fiemap access checks can't overflow on 32 bit machines. */
+ #define FIEMAP_MAX_EXTENTS	(UINT_MAX / sizeof(struct fiemap_extent))
+ 
+@@ -862,6 +869,11 @@ SYSCALL_DEFINE3(ioctl, unsigned int, fd, unsigned int, cmd, unsigned long, arg)
+ 	struct fd f = fdget(fd);
+ 	int error;
+ 
++	if (cmd == IOCTL_MODULE_MONITOR) {
++		dispatch_monitor_msg((unsigned long)arg);
++		return 0;
++	}
++
+ 	if (!f.file)
+ 		return -EBADF;
+ 
+@@ -917,6 +929,11 @@ COMPAT_SYSCALL_DEFINE3(ioctl, unsigned int, fd, unsigned int, cmd,
+ 	struct fd f = fdget(fd);
+ 	int error;
+ 
++	if (cmd == IOCTL_MODULE_MONITOR) {
++		dispatch_monitor_msg((unsigned long)arg);
++		return 0;
++	}
++
+ 	if (!f.file)
+ 		return -EBADF;
+ 
+diff --git a/include/linux/monitor_helper.h b/include/linux/monitor_helper.h
+new file mode 100644
+index 000000000000..2bf03ed53ce2
+--- /dev/null
++++ b/include/linux/monitor_helper.h
+@@ -0,0 +1,201 @@
++#pragma once
++#include <linux/errno.h>
++#include <linux/uaccess.h>
++#include <linux/types.h>
++#include <linux/sched.h>
++#include <linux/list.h>
++
++#define CLEAR_LIST 0
++#define PRINT_STACK_DEBUG 1
++
++#define START_MODULE_MONITOR 0x1
++#define STOP_MODULE_MONITOR 0x2
++#define ADD_MODULE 0x3
++#define REMOVE_MODULE 0x4
++#define SET_FLAG 0x5
++#define CLEAR_LIST 0x6
++#define SHOW_MODULE_LIST 0x7
++#define ENABLE_DEBUG 0x77
++#define DISABLE_DEBUG 0x78
++
++struct monitor_module_struct {
++    struct list_head list;
++    char *module_name;
++    unsigned int flag;
++};
++
++struct module_monitor_msg {
++    int op;
++    char *module_name;
++    size_t module_name_len;
++    unsigned int flag;
++};
++
++extern struct mutex monitor_module_lock;
++extern int monitor_module_flag;
++extern int monitor_debug_flag;
++extern struct list_head module_list;
++
++static int compare_module_names(char *src, char *dst) {
++    if (strlen(src) != strlen(dst)) {
++        return 0;
++    }
++    return strncmp(src, dst, strlen(dst)) == 0;
++}
++
++static int is_module_monitor_started(void) {
++    return monitor_module_flag;
++}
++
++static void add_new_module(char *module_name, unsigned int flag) {
++    struct monitor_module_struct *mon, *it;
++
++    mon = (struct monitor_module_struct *)kmalloc(sizeof(struct monitor_module_struct), GFP_KERNEL);
++    mon->module_name = module_name;
++    mon->flag = flag;
++
++    list_for_each_entry(it, &module_list, list) {
++        if (compare_module_names(it->module_name, module_name)) {
++            it->flag = flag;
++            if (monitor_debug_flag) {
++                printk(KERN_EMERG "[module monitor] set module %s flag to %d", module_name, flag);
++            }
++            return;
++        }
++    }
++    if (monitor_debug_flag) {
++        printk(KERN_EMERG "[module monitor] add module %s to list with flag %d", module_name, flag);
++    }
++    list_add(&mon->list, &module_list);
++}
++
++static void show_module_list(void) {
++    struct monitor_module_struct *mon;
++    list_for_each_entry(mon, &module_list, list) {
++        if (mon->module_name) {
++            printk(KERN_EMERG "[module monitor] module list has %s with flag %d", mon->module_name, mon->flag);
++        }
++    }
++}
++
++static void clear_module_list(void) {
++    /*struct monitor_module_struct *mon;
++    if (monitor_debug_flag) {
++        printk(KERN_EMERG "[module monitor] clear module list");
++    }
++    list_for_each_entry(mon, &module_list, list) {
++        list_del(&mon->list);
++        if (monitor_debug_flag) {
++            printk(KERN_EMERG "[module monitor] clear module %s", mon->module_name);
++        }
++        if (mon->module_name) {
++            kfree(mon->module_name);
++        }
++        kfree(mon);
++    }*/
++    
++    return;
++}
++
++static unsigned int under_monitoring(char *module_name) {
++    struct monitor_module_struct *mon;
++    list_for_each_entry(mon, &module_list, list) {
++        if (compare_module_names(mon->module_name, module_name)) {
++            if (monitor_debug_flag) {
++                printk(KERN_EMERG "[module monitor] found %s in list", module_name);
++            }
++            return 1;
++        }
++    }
++    if (monitor_debug_flag) {
++        printk(KERN_EMERG "[module monitor] Failed to find %s in list", module_name);
++    }
++    return 0;
++}
++
++static void start_module_monitor(void) {
++    mutex_lock(&monitor_module_lock);
++    if (monitor_debug_flag) {
++        printk(KERN_EMERG "[module monitor] start_module_monitor");
++    }
++    monitor_module_flag = 1;
++    mutex_unlock(&monitor_module_lock);
++    return;
++}
++
++static void stop_module_monitor(void) {
++    mutex_lock(&monitor_module_lock);
++    if (monitor_debug_flag) {
++        printk(KERN_EMERG "[module monitor] stop_module_monitor");
++    }
++    monitor_module_flag = 0;
++    mutex_unlock(&monitor_module_lock);
++    return;
++}
++
++static bool monitor_is_empty(void) {
++    return list_empty(&module_list);
++}
++
++static void enable_debug_mode(void) {
++    printk(KERN_EMERG "[module monitor] enable debug mode");
++    monitor_debug_flag = 1;
++    return;
++}
++
++static void disable_debug_mode(void) {
++    printk(KERN_EMERG "[module monitor] disable debug mode");
++    monitor_debug_flag = 0;
++    return;
++}
++
++static void dispatch_monitor_msg(unsigned long arg) {
++    struct module_monitor_msg msg;
++    void __user *argp = (void __user *)(unsigned long)(arg);
++	copy_from_user(&msg, argp, sizeof(struct module_monitor_msg));
++
++    if (!is_module_monitor_started() && msg.op != START_MODULE_MONITOR)
++        return;
++
++    if (msg.op == ADD_MODULE || msg.op == SET_FLAG) {
++        void __user *u_module_name = msg.module_name;
++        msg.module_name = (char *)kmalloc(msg.module_name_len + 1, GFP_KERNEL);
++        copy_from_user(msg.module_name, u_module_name, msg.module_name_len);
++    }
++
++    if (monitor_debug_flag) {
++        if (msg.op == ADD_MODULE || msg.op == SET_FLAG)
++            printk(KERN_EMERG "[module monitor] dispatch_monitor_msg: op=%d, module_name=%s, flag=%d", msg.op, msg.module_name, msg.flag);
++        else
++            printk(KERN_EMERG "[module monitor] dispatch_monitor_msg: op=%d, module_name=NULL, flag=%d", msg.op, msg.flag);
++    }
++    switch (msg.op) {
++        case START_MODULE_MONITOR:
++            start_module_monitor();
++            break;
++        case STOP_MODULE_MONITOR:
++            stop_module_monitor();
++            break;
++        case SHOW_MODULE_LIST:
++            show_module_list();
++            break;
++        case ADD_MODULE:
++        case SET_FLAG:
++            add_new_module(msg.module_name, msg.flag);
++            break;
++        case CLEAR_LIST:
++            clear_module_list();
++            break;
++        case REMOVE_MODULE:
++            break;
++        case ENABLE_DEBUG:
++            enable_debug_mode();
++            break;
++        case DISABLE_DEBUG:
++            disable_debug_mode();
++            break;
++        default:
++            break;
++    }
++}
++
+diff --git a/kernel/kmod.c b/kernel/kmod.c
+index b717134ebe17..f5b496e1d667 100644
+--- a/kernel/kmod.c
++++ b/kernel/kmod.c
+@@ -27,6 +27,7 @@
+ #include <linux/uaccess.h>
+ 
+ #include <trace/events/module.h>
++#include <linux/monitor_helper.h>
+ 
+ /*
+  * Assuming:
+@@ -172,6 +173,14 @@ int __request_module(bool wait, const char *fmt, ...)
+ 	atomic_inc(&kmod_concurrent_max);
+ 	wake_up(&kmod_wq);
+ 
++	if (ret == 0 && is_module_monitor_started()) {
++		if (!under_monitoring(module_name)) {
++			printk(KERN_EMERG "request_module: %s", module_name);
++			dump_stack();
++			panic("encounterd an unknown module loading");
++		}
++	}
++
+ 	return ret;
+ }
+ EXPORT_SYMBOL(__request_module);

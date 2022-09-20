@@ -20,6 +20,7 @@ type WorkQueue struct {
 	candidate       []*WorkCandidate
 	triage          []*WorkTriage
 	smash           []*WorkSmash
+	mutate          []*WorkMutate
 
 	procs          int
 	needCandidates chan struct{}
@@ -61,6 +62,11 @@ type WorkSmash struct {
 	call int
 }
 
+type WorkMutate struct {
+	p     *prog.Prog
+	flags ProgTypes
+}
+
 func newWorkQueue(procs int, needCandidates chan struct{}) *WorkQueue {
 	return &WorkQueue{
 		procs:          procs,
@@ -82,6 +88,8 @@ func (wq *WorkQueue) enqueue(item interface{}) {
 		wq.candidate = append(wq.candidate, item)
 	case *WorkSmash:
 		wq.smash = append(wq.smash, item)
+	case *WorkMutate:
+		wq.mutate = append(wq.mutate, item)
 	default:
 		panic("unknown work type")
 	}
@@ -89,7 +97,7 @@ func (wq *WorkQueue) enqueue(item interface{}) {
 
 func (wq *WorkQueue) dequeue() (item interface{}) {
 	wq.mu.RLock()
-	if len(wq.triageCandidate)+len(wq.candidate)+len(wq.triage)+len(wq.smash) == 0 {
+	if len(wq.triageCandidate)+len(wq.candidate)+len(wq.triage)+len(wq.smash)+len(wq.mutate) == 0 {
 		wq.mu.RUnlock()
 		return nil
 	}
@@ -113,6 +121,10 @@ func (wq *WorkQueue) dequeue() (item interface{}) {
 		last := len(wq.smash) - 1
 		item = wq.smash[last]
 		wq.smash = wq.smash[:last]
+	} else if len(wq.mutate) != 0 {
+		last := len(wq.mutate) - 1
+		item = wq.mutate[last]
+		wq.mutate = wq.mutate[:last]
 	}
 	wq.mu.Unlock()
 	if wantCandidates {

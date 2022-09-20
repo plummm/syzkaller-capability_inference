@@ -358,13 +358,13 @@ var dynamicTitleReplacement = []replacement{
 		regexp.MustCompile(`CPU#[0-9]+`),
 		"CPU",
 	},
-	{
+	/*{
 		// Replace with "NUM" everything that looks like a decimal number and has not
 		// been replaced yet. It might require multiple replacement executions as the
 		// matching substrings may overlap (e.g. "0,1,2").
 		regexp.MustCompile(`(\W)(\d+)(\W|$)`),
 		"${1}NUM${3}",
-	},
+	},*/
 }
 
 func sanitizeTitle(title string) string {

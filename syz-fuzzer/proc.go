@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/syzkaller/courier"
 	"github.com/google/syzkaller/pkg/cover"
 	"github.com/google/syzkaller/pkg/hash"
 	"github.com/google/syzkaller/pkg/ipc"
@@ -76,6 +77,8 @@ func (proc *Proc) loop() {
 				proc.execute(proc.execOpts, item.p, item.flags, StatCandidate)
 			case *WorkSmash:
 				proc.smashInput(item)
+			case *WorkMutate:
+				proc.mutateArgs(item)
 			default:
 				log.Fatalf("unknown work type: %#v", item)
 			}
@@ -204,6 +207,16 @@ func getSignalAndCover(p *prog.Prog, info *ipc.ProgInfo, call int) (signal.Signa
 		inf = &info.Calls[call]
 	}
 	return signal.FromRaw(inf.Signal, signalPrio(p, inf, call)), inf.Cover
+}
+
+func (proc *Proc) mutateArgs(item *WorkMutate) {
+	fuzzerSnapshot := proc.fuzzer.snapshot()
+	for i := 0; i < 100; i++ {
+		p := item.p.Clone()
+		p.MutateArgs(proc.rnd, prog.RecommendedCalls, proc.fuzzer.choiceTable, fuzzerSnapshot.corpus)
+		log.Logf(1, "#%v: args mutated", proc.pid)
+		proc.execute(proc.execOpts, p, ProgNormal, StatSmash)
+	}
 }
 
 func (proc *Proc) smashInput(item *WorkSmash) {
@@ -373,5 +386,41 @@ func (proc *Proc) logProgram(opts *ipc.ExecOpts, p *prog.Prog) {
 		}
 	default:
 		log.Fatalf("unknown output type: %v", proc.fuzzer.outputType)
+	}
+}
+
+func (proc *Proc) checkMutatingQueueLoop() {
+	for {
+		a := &rpctype.GetQueueLenArgs{
+			Flag: courier.Mutating,
+		}
+		r := &rpctype.GetQueueLenRes{}
+		if err := proc.fuzzer.manager.Call("Manager.GetQueueLen", a, r); err != nil {
+			log.Fatalf("checkArgsQueueLoop: failed to connect to manager: %v ", err)
+		}
+		if r.Length > 0 {
+			pq := &rpctype.ProgQueue{}
+			if err := proc.fuzzer.manager.Call("Manager.RetrieveArgsQueue", pq, pq); err != nil {
+				log.Fatalf("failed to connect to manager: %v ", err)
+			}
+			log.Logf(1, "New Arg Aviable: %s\n", pq.Prog)
+			p, err := proc.fuzzer.target.Deserialize(pq.Prog, prog.NonStrict)
+			if err != nil {
+				log.Fatalf("checkArgsQueueLoop: failed to parse program from manager: %v", err)
+			}
+			//sig := hash.Hash(pq.Prog)
+			//sign := pq.Prog.Signal.Deserialize()
+			//fuzzer.addInputToCorpus(p, sign, sig)
+			flags := ProgNormal
+			//if strings.Compare(string(pq.Prog), string(p.Serialize())) != 0 {
+			//prog.PocProg = string(p.Serialize())
+			//	log.Logf(0, "Prog is not minimized\n")
+			//}
+			proc.fuzzer.workQueue.enqueue(&WorkMutate{
+				p:     p,
+				flags: flags,
+			})
+		}
+		time.Sleep(10 * time.Second)
 	}
 }

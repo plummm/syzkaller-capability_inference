@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"os/exec"
 	"runtime"
 	"runtime/debug"
 	"sort"
@@ -289,6 +290,8 @@ func main() {
 	if r.CoverFilterBitmap != nil {
 		fuzzer.execOpts.Flags |= ipc.FlagEnableCoverageFilter
 	}
+	log.Logf(0, "startMonitoringModules")
+	fuzzer.startMonitoringModules()
 
 	log.Logf(0, "starting %v fuzzer processes", *flagProcs)
 	for pid := 0; pid < *flagProcs; pid++ {
@@ -299,6 +302,13 @@ func main() {
 		fuzzer.procs = append(fuzzer.procs, proc)
 		go proc.loop()
 	}
+
+	MutatingLoop, err1 := newProc(fuzzer, *flagProcs)
+	if err1 != nil {
+		log.Fatalf("failed to create proc: %v", err)
+	}
+	fuzzer.procs = append(fuzzer.procs, MutatingLoop)
+	go MutatingLoop.checkMutatingQueueLoop()
 
 	fuzzer.pollLoop()
 }
@@ -328,6 +338,17 @@ func (fuzzer *Fuzzer) useBugFrames(r *rpctype.ConnectRes, flagProcs int) func() 
 	}
 
 	return gateCallback
+}
+
+func (fuzzer *Fuzzer) startMonitoringModules() {
+	log.Logf(0, "Ready to monitor modules")
+	//time.Sleep(30 * time.Second)
+	cmd := exec.Command("/bin/bash", "-c", "cd / && chmod +x monitor_module.sh && ./monitor_module.sh")
+	err := cmd.Run()
+
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func (fuzzer *Fuzzer) gateCallback(leakFrames []string) {

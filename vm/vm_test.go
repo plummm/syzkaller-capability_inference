@@ -241,7 +241,7 @@ var tests = []*Test{
 		Body: func(outc chan []byte, errc chan error) {
 		},
 		Report: &report.Report{
-			Title: noOutputCrash,
+			Title: NoOutputCrash,
 		},
 	},
 	{
@@ -253,7 +253,7 @@ var tests = []*Test{
 			}
 		},
 		Report: &report.Report{
-			Title: noOutputCrash,
+			Title: NoOutputCrash,
 		},
 	},
 	{

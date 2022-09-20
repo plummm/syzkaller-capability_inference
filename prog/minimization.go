@@ -6,6 +6,8 @@ package prog
 import (
 	"fmt"
 	"reflect"
+
+	"github.com/google/syzkaller/pkg/log"
 )
 
 // Minimize minimizes program p into an equivalent program using the equivalence
@@ -63,6 +65,7 @@ func Minimize(p0 *Prog, callIndex0 int, crash bool, pred0 func(*Prog, int) bool)
 }
 
 func removeCalls(p0 *Prog, callIndex0 int, crash bool, pred func(*Prog, int) bool) (*Prog, int) {
+	log.Logf(1, "remove calls start: %v", string(p0.Serialize()))
 	for i := len(p0.Calls) - 1; i >= 0; i-- {
 		if i == callIndex0 {
 			continue
@@ -74,11 +77,14 @@ func removeCalls(p0 *Prog, callIndex0 int, crash bool, pred func(*Prog, int) boo
 		p := p0.Clone()
 		p.RemoveCall(i)
 		if !pred(p, callIndex) {
+			log.Logf(1, "remove call failed: %v", string(p.Serialize()))
 			continue
 		}
+		log.Logf(1, "remove call succeed: %v", string(p.Serialize()))
 		p0 = p
 		callIndex0 = callIndex
 	}
+	log.Logf(1, "remove call finished: %v", string(p0.Serialize()))
 	return p0, callIndex0
 }
 

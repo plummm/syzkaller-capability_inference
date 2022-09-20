@@ -120,6 +120,9 @@ func (inst *instance) Copy(hostSrc string) (string, error) {
 	return deviceDst, nil
 }
 
+func (inst *instance) ChangeSSHUser(newUser string) {
+}
+
 func (inst *instance) Forward(port int) (string, error) {
 	hostForward, err := inst.gceInst.Forward(port)
 	if err != nil {

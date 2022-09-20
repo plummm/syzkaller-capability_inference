@@ -6,6 +6,9 @@ package prog
 import (
 	"bytes"
 	"strconv"
+	"strings"
+
+	"github.com/google/syzkaller/pkg/log"
 )
 
 // LogEntry describes one program in execution log.
@@ -14,6 +17,7 @@ type LogEntry struct {
 	Proc  int // index of parallel proc
 	Start int // start offset in log
 	End   int // end offset in log
+	Index int
 }
 
 func (target *Target) ParseLog(data []byte) []*LogEntry {
@@ -21,6 +25,7 @@ func (target *Target) ParseLog(data []byte) []*LogEntry {
 	ent := &LogEntry{}
 	var cur []byte
 	faultCall, faultNth := -1, -1
+	callIndex := 0
 	for pos := 0; pos < len(data); {
 		nl := bytes.IndexByte(data[pos:], '\n')
 		if nl == -1 {
@@ -32,7 +37,13 @@ func (target *Target) ParseLog(data []byte) []*LogEntry {
 		pos0 := pos
 		pos = nl + 1
 
+		if strings.HasPrefix(string(line), "MAGIC?!CALL") {
+			callIndex += 1
+		}
+
 		if proc, ok := extractInt(line, "executing program "); ok {
+			ent.Index = callIndex
+			callIndex = 0
 			if ent.P != nil && len(ent.P.Calls) != 0 {
 				ent.End = pos0
 				entries = append(entries, ent)
@@ -70,8 +81,13 @@ func (target *Target) ParseLog(data []byte) []*LogEntry {
 		ent.P = p
 	}
 	if ent.P != nil && len(ent.P.Calls) != 0 {
+		ent.Index = callIndex
 		ent.End = len(data)
 		entries = append(entries, ent)
+	}
+
+	for i, ent := range entries {
+		log.Logf(1, "ent[%v] %v: %v", i, ent.Index, string(ent.P.Serialize()))
 	}
 	return entries
 }

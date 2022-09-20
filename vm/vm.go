@@ -144,6 +144,10 @@ func (inst *Instance) Run(timeout time.Duration, stop <-chan bool, command strin
 	return inst.impl.Run(timeout, stop, command)
 }
 
+func (inst *Instance) ChangeSSHUser(newUser string) {
+	inst.impl.ChangeSSHUser(newUser)
+}
+
 func (inst *Instance) Info() ([]byte, error) {
 	if ii, ok := inst.impl.(vmimpl.Infoer); ok {
 		return ii.Info()
@@ -287,7 +291,7 @@ func (mon *monitor) monitorExecution() *report.Report {
 			// Detect both "no output whatsoever" and "kernel episodically prints
 			// something to console, but fuzzer is not actually executing programs".
 			if time.Since(lastExecuteTime) > mon.inst.timeouts.NoOutput {
-				return mon.extractError(noOutputCrash)
+				return mon.extractError(NoOutputCrash)
 			}
 		case <-Shutdown:
 			return nil
@@ -302,7 +306,7 @@ func (mon *monitor) extractError(defaultError string) *report.Report {
 	}
 	// Give it some time to finish writing the error message.
 	// But don't wait for "no output", we already waited enough.
-	if defaultError != noOutputCrash || diagWait {
+	if defaultError != NoOutputCrash || diagWait {
 		mon.waitForOutput()
 	}
 	if bytes.Contains(mon.output, []byte(fuzzerPreemptedStr)) {
@@ -374,7 +378,7 @@ const (
 	maxErrorLength = 256
 
 	lostConnectionCrash = "lost connection to test machine"
-	noOutputCrash       = "no output from test machine"
+	NoOutputCrash       = "no output from test machine"
 	timeoutCrash        = "timed out"
 	fuzzerPreemptedStr  = "SYZ-FUZZER: PREEMPTED"
 	vmDiagnosisStart    = "\nVM DIAGNOSIS:\n"

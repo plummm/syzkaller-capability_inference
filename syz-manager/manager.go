@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"flag"
@@ -14,10 +15,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/google/syzkaller/courier"
 	"github.com/google/syzkaller/dashboard/dashapi"
 	"github.com/google/syzkaller/pkg/cover"
 	"github.com/google/syzkaller/pkg/csource"
@@ -322,17 +325,22 @@ func (mgr *Manager) vmLoop() {
 	reproDone := make(chan *ReproResult, 1)
 	stopPending := false
 	shutdown := vm.Shutdown
+	known_module := make(map[string]bool)
+	mgr.readKnownModule(known_module)
 	for shutdown != nil || instances.Len() != vmCount {
 		mgr.mu.Lock()
 		phase := mgr.phase
 		mgr.mu.Unlock()
 
 		for crash := range pendingRepro {
+			log.Logf(0, "checking crash %v", crash.Title)
 			if reproducing[crash.Title] {
+				log.Logf(0, "%v is reproducing", crash.Title)
 				continue
 			}
 			delete(pendingRepro, crash)
 			if !mgr.needRepro(crash) {
+				log.Logf(0, "%v doesn't need repro", crash.Title)
 				continue
 			}
 			log.Logf(1, "loop: add to repro queue '%v'", crash.Title)
@@ -345,7 +353,7 @@ func (mgr *Manager) vmLoop() {
 			len(pendingRepro), len(reproducing), len(reproQueue))
 
 		canRepro := func() bool {
-			return phase >= phaseTriagedHub && len(reproQueue) != 0 &&
+			return len(reproQueue) != 0 &&
 				(int(atomic.LoadUint32(&mgr.numReproducing))+1)*instancesPerRepro <= maxReproVMs
 		}
 
@@ -402,8 +410,13 @@ func (mgr *Manager) vmLoop() {
 			if shutdown != nil && res.crash != nil {
 				needRepro := mgr.saveCrash(res.crash)
 				if needRepro {
-					log.Logf(1, "loop: add pending repro for '%v'", res.crash.Title)
-					pendingRepro[res.crash] = true
+					module_name := extractModuleName(res.crash.Title)
+					if _, ok := known_module[module_name]; !ok && module_name != "" {
+						log.Logf(1, "loop: add pending repro for '%v'", res.crash.Title)
+						pendingRepro[res.crash] = true
+						log.Logf(0, "known module: %v", module_name)
+						known_module[module_name] = true
+					}
 				}
 			}
 		case res := <-reproDone:
@@ -426,6 +439,9 @@ func (mgr *Manager) vmLoop() {
 				}
 			} else {
 				mgr.saveRepro(res)
+				log.Logf(0, "save repro for %v", res.report0.Title)
+				courier.AppendTestcase(res.repro.Prog)
+				write2knownModlue(mgr.cfg.Workdir, known_module)
 			}
 		case <-shutdown:
 			log.Logf(1, "loop: shutting down...")
@@ -481,6 +497,46 @@ func (mgr *Manager) runRepro(crash *Crash, vmIndexes []int, putInstances func(..
 		putInstances(vmIndexes...)
 	}
 	return ret
+}
+
+func (mgr *Manager) readKnownModule(known_module map[string]bool) {
+	p := filepath.Join(mgr.cfg.Workdir, "known_modules")
+	readFile, err := os.Open(p)
+	defer readFile.Close()
+
+	if err != nil {
+		fmt.Println(err)
+	}
+	fileScanner := bufio.NewScanner(readFile)
+
+	fileScanner.Split(bufio.ScanLines)
+
+	for fileScanner.Scan() {
+		module_name := fileScanner.Text()
+		known_module[module_name] = true
+	}
+}
+
+func extractModuleName(title string) string {
+	re := regexp.MustCompile(`request_module: ([A-Za-z0-9_\.\-]+)`)
+	m := re.FindAllSubmatch([]byte(title), -1)
+	if m == nil {
+		return ""
+	}
+	if len(m[0]) < 2 {
+		log.Logf(0, "Cannot write %v, submatch is %q", title, m[0])
+		return ""
+	}
+	return string(m[0][1])
+}
+
+func write2knownModlue(workdir string, known_module map[string]bool) {
+	data := ""
+	for key, _ := range known_module {
+		data = data + key + "\n"
+	}
+	osutil.WriteFile(filepath.Join(workdir, "known_modules"), []byte(data))
+	return
 }
 
 type ResourcePool struct {
@@ -747,6 +803,21 @@ func (mgr *Manager) runInstanceInner(index int, instanceName string) (*report.Re
 		}
 	}
 
+	_, err = inst.Copy(filepath.Join(mgr.cfg.Workdir, "add_known_module"))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to copy binary: %v", err)
+	}
+
+	_, err = inst.Copy(filepath.Join(mgr.cfg.Workdir, "monitor_module.sh"))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to copy script: %v", err)
+	}
+
+	_, err = inst.Copy(filepath.Join(mgr.cfg.Workdir, "known_modules"))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to copy known_modules: %v", err)
+	}
+
 	fuzzerV := 0
 	procs := mgr.cfg.Procs
 	if *flagDebug {
@@ -778,7 +849,7 @@ func (mgr *Manager) runInstanceInner(index int, instanceName string) (*report.Re
 			RawCover: mgr.cfg.RawCover,
 		},
 	}
-	cmd := instance.FuzzerCmd(args)
+	cmd := "echo \"6\" > /proc/sys/kernel/printk && " + instance.FuzzerCmd(args)
 	outc, errc, err := inst.Run(mgr.cfg.Timeouts.VMRunningTime, mgr.vmStop, cmd)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to run fuzzer: %v", err)
@@ -1071,6 +1142,9 @@ func (mgr *Manager) saveRepro(res *ReproResult) {
 		log.Logf(0, "failed to write crash: %v", err)
 	}
 	osutil.WriteFile(filepath.Join(dir, "repro.prog"), append([]byte(opts), prog...))
+	if repro.LowPrivilege {
+		osutil.WriteFile(filepath.Join(dir, "repro.low-privilege"), []byte("true"))
+	}
 	if mgr.cfg.Tag != "" {
 		osutil.WriteFile(filepath.Join(dir, "repro.tag"), []byte(mgr.cfg.Tag))
 	}

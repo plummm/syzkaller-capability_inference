@@ -139,7 +139,7 @@ func (ctx *linux) ContainsCrash(output []byte) bool {
 }
 
 func (ctx *linux) Parse(output []byte) *Report {
-	oops, startPos, context := ctx.findFirstOops(output)
+	oops, startPos, context := ctx.findCriticalOops(output)
 	if oops == nil {
 		return nil
 	}
@@ -215,6 +215,73 @@ func (ctx *linux) findFirstOops(output []byte) (oops *oops, startPos int, contex
 		}
 	}
 	return
+}
+
+func (ctx *linux) findCriticalOops(output []byte) (oops *oops, startPos int, context string) {
+	index := ChooseCriticalCrash(output)
+	for pos, next := 0, 0; pos < len(output); pos = next + 1 {
+		next = bytes.IndexByte(output[pos:], '\n')
+		if next != -1 {
+			next += pos
+		} else {
+			next = len(output)
+		}
+		line := output[pos:next]
+		for _, oops1 := range linuxOopses {
+			if matchOops(line, oops1, ctx.ignores) {
+				if bytes.Contains(line, []byte("fs-binfmt_misc")) {
+					return
+				}
+				oops = oops1
+				startPos = pos
+				context = ctx.extractContext(line)
+				if len(index) == 0 {
+					return
+				}
+				break
+			}
+		}
+		if len(index) > 0 {
+			if pos <= index[0][0] && next >= index[0][1] {
+				return
+			}
+		}
+	}
+	return
+}
+
+func ChooseCriticalCrash(output []byte) [][]int {
+	var index [][]int
+	var crashRegx []*regexp.Regexp
+	//kasanRegx := regexp.MustCompile(`BUG: KASAN: ([a-z\\-]+) in ([a-zA-Z0-9_]+).*`)
+	//oobReadRegx := regexp.MustCompile(`\?!\?MAGIC\?!\?read->(\w*) size->(\d*)`)
+	crashRegx = append(crashRegx, regexp.MustCompile(`request_module:`))
+	for _, each := range crashRegx {
+		index = each.FindAllIndex(output, -1)
+		if len(index) > 0 {
+			break
+		}
+	}
+	return index
+}
+
+func (ctx *linux) takeAfterContext(line []byte) []byte {
+	prefix := ctx.extractContext(line)
+	index := strings.Index(string(line), prefix)
+	new := make([]byte, len(line)-(index+len(prefix))+1)
+	copy(new, line[index+len(prefix):])
+	return new
+}
+
+func (ctx *linux) getNextLine(start int, output []byte) []byte {
+	next := bytes.IndexByte(output[start:], '\n')
+	if next != -1 {
+		next += start
+	} else {
+		next = len(output)
+	}
+	line := output[start:next]
+	return line
 }
 
 // This method decides if the report prefix is already long enough to be cut on "Kernel panic - not
@@ -2216,6 +2283,17 @@ var linuxOopses = append([]*oops{
 						parseStackTrace,
 					},
 				},
+			},
+		},
+		[]*regexp.Regexp{},
+	},
+	{
+		[]byte("request_module:"),
+		[]oopsFormat{
+			{
+				title:  compile("request module"),
+				report: compile("request module \\[{{FUNC}}\\]"),
+				fmt:    "request module %[1]v",
 			},
 		},
 		[]*regexp.Regexp{},

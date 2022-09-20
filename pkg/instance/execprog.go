@@ -6,6 +6,7 @@ package instance
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/google/syzkaller/pkg/csource"
@@ -139,9 +140,35 @@ func (inst *ExecProgInstance) runBinary(bin string, duration time.Duration) (*Ru
 	}
 	return inst.runCommand(bin, duration)
 }
+func (inst *ExecProgInstance) ShowProg(ProgFile string, duration time.Duration) {
+	inst.runCommand("cat "+ProgFile, duration)
+}
+
+func (inst *ExecProgInstance) EnableModuleMonitor(duration time.Duration) bool {
+	_, err := inst.VMInstance.Copy(filepath.Join(inst.mgrCfg.Workdir, "add_known_module"))
+	if err != nil {
+		return false
+	}
+
+	_, err = inst.VMInstance.Copy(filepath.Join(inst.mgrCfg.Workdir, "monitor_module.sh"))
+	if err != nil {
+		return false
+	}
+
+	_, err = inst.VMInstance.Copy(filepath.Join(inst.mgrCfg.Workdir, "known_modules"))
+	if err != nil {
+		return false
+	}
+
+	inst.runCommand("cd / && chmod +x monitor_module.sh && ./monitor_module.sh", duration)
+	return true
+}
 
 func (inst *ExecProgInstance) RunCProg(p *prog.Prog, duration time.Duration,
 	opts csource.Options) (*RunResult, error) {
+	if !inst.EnableModuleMonitor(duration) {
+		return nil, &TestError{Title: "failed to copy module monitor to VM"}
+	}
 	src, err := csource.Write(p, opts)
 	if err != nil {
 		return nil, err
@@ -162,10 +189,14 @@ func (inst *ExecProgInstance) RunCProgRaw(src []byte, target *prog.Target,
 
 func (inst *ExecProgInstance) RunSyzProgFile(progFile string, duration time.Duration,
 	opts csource.Options) (*RunResult, error) {
+	if !inst.EnableModuleMonitor(duration) {
+		return nil, &TestError{Title: "failed to copy module monitor to VM"}
+	}
 	vmProgFile, err := inst.VMInstance.Copy(progFile)
 	if err != nil {
 		return nil, &TestError{Title: fmt.Sprintf("failed to copy prog to VM: %v", err)}
 	}
+	inst.ShowProg(vmProgFile, duration)
 	target := inst.mgrCfg.SysTarget
 	faultCall := -1
 	if opts.Fault {
@@ -185,4 +216,17 @@ func (inst *ExecProgInstance) RunSyzProg(syzProg []byte, duration time.Duration,
 	}
 	defer os.Remove(progFile)
 	return inst.RunSyzProgFile(progFile, duration, opts)
+}
+
+func (inst *ExecProgInstance) RunSyzProgLowPrivilege(syzProg []byte, duration time.Duration,
+	opts csource.Options) (*RunResult, error) {
+	progFile, err := osutil.WriteTempFile(syzProg)
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(progFile)
+	inst.VMInstance.ChangeSSHUser("etenal")
+	res, err := inst.RunSyzProgFile(progFile, duration, opts)
+	inst.VMInstance.ChangeSSHUser("root")
+	return res, err
 }

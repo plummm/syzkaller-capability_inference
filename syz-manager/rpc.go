@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/syzkaller/courier"
 	"github.com/google/syzkaller/pkg/cover"
 	"github.com/google/syzkaller/pkg/host"
 	"github.com/google/syzkaller/pkg/log"
@@ -380,4 +381,34 @@ func (serv *RPCServer) shutdownInstance(name string) []byte {
 	}
 	delete(serv.fuzzers, name)
 	return fuzzer.machineInfo
+}
+
+func (serv *RPCServer) GetQueueLen(a *rpctype.GetQueueLenArgs, r *rpctype.GetQueueLenRes) error {
+	switch a.Flag {
+	case courier.Mutating:
+		r.Length = len(courier.MutateArgsQueue)
+		break
+	case courier.Commands:
+		r.Length = len(courier.CommandsQueue)
+		break
+	}
+	return nil
+}
+
+func (serv *RPCServer) RetrieveArgsQueue(a *rpctype.ProgQueue, pq *rpctype.ProgQueue) error {
+	courier.Mutex.Lock()
+	p := courier.RetrieveFirstArg(courier.Mutating)
+	if p != nil {
+		*pq = p.(rpctype.ProgQueue)
+	}
+	courier.Mutex.Unlock()
+	return nil
+}
+
+func (serv *RPCServer) EmitSignal(a *rpctype.FuzzerSignal, pq *rpctype.FuzzerSignal) error {
+	courier.Mutex.Lock()
+	sg := a.Signal
+	log.Logf(0, "A signal from fuzzer: %s\n", sg)
+	courier.Mutex.Unlock()
+	return nil
 }

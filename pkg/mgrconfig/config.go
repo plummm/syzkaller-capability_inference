@@ -120,6 +120,10 @@ type Config struct {
 	// "android": (Android) Emulate permissions of an untrusted app.
 	Sandbox string `json:"sandbox"`
 
+	Repeat bool `json:"repeat"`
+
+	Thread bool `json:"thread"`
+
 	// Use KCOV coverage (default: true).
 	Cover bool `json:"cover"`
 	// Use coverage filter. Supported types of filter:
@@ -180,7 +184,8 @@ type Config struct {
 	VM json.RawMessage `json:"vm"`
 
 	// Implementation details beyond this point. Filled after parsing.
-	Derived `json:"-"`
+	Derived   `json:"-"`
+	TimeLimit string `json:"time_limit"`
 }
 
 type Subsystem struct {

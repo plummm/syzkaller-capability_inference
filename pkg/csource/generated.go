@@ -10719,28 +10719,35 @@ void execute_one(void)
 void loop(void)
 #endif
 {
+	ioctl(0, 0x37777, "MAGIC?!START\x00");
 	/*{{{SYSCALLS}}}*/
 #if SYZ_HAVE_CLOSE_FDS && !SYZ_THREADED && !SYZ_REPEAT
 	close_fds();
 #endif
+	ioctl(0, 0x37777, "MAGIC?!STOP\x00");
 }
 #endif
 #if GOOS_akaros && SYZ_REPEAT
 #include <string.h>
+#include <sys/ioctl.h>
 
 int main(int argc, char** argv)
 {
 	/*{{{MMAP_DATA}}}*/
 
+	ioctl(0, 0x37777, "MAGIC?!STOP\x00");
 	program_name = argv[0];
 	if (argc == 2 && strcmp(argv[1], "child") == 0)
 		child();
 #else
+#include <sys/ioctl.h>
+
 int main(void)
 {
 	/*{{{MMAP_DATA}}}*/
 #endif
 
+	ioctl(0, 0x37777, "MAGIC?!STOP\x00");
 #if SYZ_HAVE_SETUP_EXT
 	setup_ext();
 #endif

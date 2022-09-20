@@ -250,6 +250,8 @@ func (inst *instance) Forward(port int) (string, error) {
 	return "stdin", nil
 }
 
+func (inst *instance) ChangeSSHUser(newUser string) {}
+
 func (inst *instance) Copy(hostSrc string) (string, error) {
 	fname := filepath.Base(hostSrc)
 	if err := osutil.CopyFile(hostSrc, filepath.Join(inst.imageDir, fname)); err != nil {

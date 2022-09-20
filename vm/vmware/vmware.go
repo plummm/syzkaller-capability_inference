@@ -171,6 +171,8 @@ func (inst *instance) Copy(hostSrc string) (string, error) {
 	return vmDst, nil
 }
 
+func (inst *instance) ChangeSSHUser(newUser string) {}
+
 func (inst *instance) Run(timeout time.Duration, stop <-chan bool, command string) (
 	<-chan []byte, <-chan error, error) {
 	vmxDir := filepath.Dir(inst.vmx)

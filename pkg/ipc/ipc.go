@@ -580,7 +580,7 @@ func makeCommand(pid int, bin []string, config *Config, inFile, outFile *os.File
 	}
 
 	// Output capture pipe.
-	rp, wp, err := os.Pipe()
+	_, wp, err := os.Pipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create pipe: %v", err)
 	}
@@ -614,34 +614,8 @@ func makeCommand(pid int, bin []string, config *Config, inFile, outFile *os.File
 	cmd.Env = append(append([]string{}, os.Environ()...), "ASAN_OPTIONS=handle_segv=0 allow_user_segv_handler=1")
 	cmd.Stdin = outrp
 	cmd.Stdout = inwp
-	if config.Flags&FlagDebug != 0 {
-		close(c.readDone)
-		cmd.Stderr = os.Stdout
-	} else {
-		cmd.Stderr = wp
-		go func(c *command) {
-			// Read out output in case executor constantly prints something.
-			const bufSize = 128 << 10
-			output := make([]byte, bufSize)
-			var size uint64
-			for {
-				n, err := rp.Read(output[size:])
-				if n > 0 {
-					size += uint64(n)
-					if size >= bufSize*3/4 {
-						copy(output, output[size-bufSize/2:size])
-						size = bufSize / 2
-					}
-				}
-				if err != nil {
-					rp.Close()
-					c.readDone <- output[:size]
-					close(c.readDone)
-					return
-				}
-			}
-		}(c)
-	}
+	close(c.readDone)
+	cmd.Stderr = os.Stdout
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start executor binary: %v", err)
 	}

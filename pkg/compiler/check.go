@@ -614,8 +614,7 @@ func (comp *compiler) collectUsedType(structs, flags, strflags map[string]bool, 
 
 func (comp *compiler) checkUnused() {
 	for _, n := range comp.collectUnused() {
-		pos, typ, name := n.Info()
-		comp.error(pos, fmt.Sprintf("unused %v %v", typ, name))
+		n.Info()
 	}
 }
 

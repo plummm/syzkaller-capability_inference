@@ -157,8 +157,8 @@ func (opts Options) checkLinuxOnly(OS string) error {
 
 func DefaultOpts(cfg *mgrconfig.Config) Options {
 	opts := Options{
-		Threaded:   true,
-		Repeat:     true,
+		Threaded:   cfg.Thread,
+		Repeat:     cfg.Repeat,
 		Procs:      cfg.Procs,
 		Slowdown:   cfg.Timeouts.Slowdown,
 		Sandbox:    cfg.Sandbox,
@@ -181,6 +181,10 @@ func DefaultOpts(cfg *mgrconfig.Config) Options {
 		opts.Sysctl = true
 	}
 	if cfg.Sandbox == "" || cfg.Sandbox == "setuid" {
+		opts.NetReset = false
+	}
+	if !cfg.Repeat {
+		opts.Procs = 1
 		opts.NetReset = false
 	}
 	if err := opts.Check(cfg.TargetOS); err != nil {

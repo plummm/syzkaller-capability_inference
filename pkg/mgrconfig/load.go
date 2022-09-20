@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/google/syzkaller/pkg/config"
+	"github.com/google/syzkaller/pkg/log"
 	"github.com/google/syzkaller/pkg/osutil"
 	"github.com/google/syzkaller/prog"
 	_ "github.com/google/syzkaller/sys" // most mgrconfig users want targets too
@@ -79,6 +80,8 @@ func LoadPartialFile(filename string) (*Config, error) {
 func defaultValues() *Config {
 	return &Config{
 		SSHUser:        "root",
+		Repeat:         true,
+		Thread:         true,
 		Cover:          true,
 		Reproduce:      true,
 		Sandbox:        "none",
@@ -294,7 +297,7 @@ func ParseEnabledSyscalls(target *prog.Target, enabled, disabled []string) ([]in
 				}
 			}
 			if n == 0 {
-				return nil, fmt.Errorf("unknown enabled syscall: %v", c)
+				log.Logf(0, "unknown enabled syscall: %v", c)
 			}
 		}
 	} else {
@@ -316,11 +319,11 @@ func ParseEnabledSyscalls(target *prog.Target, enabled, disabled []string) ([]in
 			}
 		}
 		if n == 0 {
-			return nil, fmt.Errorf("unknown disabled syscall: %v", c)
+			log.Logf(0, "unknown enabled syscall: %v", c)
 		}
 	}
 	if len(syscalls) == 0 {
-		return nil, fmt.Errorf("all syscalls are disabled by disable_syscalls in config")
+		log.Logf(0, "all syscalls are disabled by disable_syscalls in config")
 	}
 	var arr []int
 	for id := range syscalls {

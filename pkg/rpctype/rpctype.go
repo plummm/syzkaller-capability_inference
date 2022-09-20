@@ -199,3 +199,19 @@ type RunTestDoneArgs struct {
 	Info   []*ipc.ProgInfo
 	Error  string
 }
+
+type ProgQueue struct {
+	Prog []byte
+}
+
+type GetQueueLenArgs struct {
+	Flag int
+}
+
+type GetQueueLenRes struct {
+	Length int
+}
+
+type FuzzerSignal struct {
+	Signal string
+}
