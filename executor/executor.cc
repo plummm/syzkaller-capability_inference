@@ -27,13 +27,6 @@
 #define ENABLE_DEBUG 0x77
 #define DISABLE_DEBUG 0x78
 
-struct module_monitor_msg {
-    int op;
-    char *module_name;
-	size_t module_name_len;
-    unsigned int flag;
-};
-
 #if !GOOS_windows
 #include <unistd.h>
 #endif
@@ -467,10 +460,10 @@ int main(int argc, char** argv)
 	}
 
 	struct module_monitor_msg msg;
-    memset(&msg, 0, sizeof(struct module_monitor_msg));
+	memset(&msg, 0, sizeof(struct module_monitor_msg));
 	msg.op = STOP_MODULE_MONITOR;
-    ioctl(0, IOCTL_MODULE_MONITOR, &msg);
-	//ioctl(0, IOCTL_MODULE_MONITOR, "MAGIC?!STOP\x00");
+	ioctl(0, IOCTL_MODULE_MONITOR, &msg);
+	// ioctl(0, IOCTL_MODULE_MONITOR, "MAGIC?!STOP\x00");
 
 	start_time_ms = current_time_ms();
 
@@ -761,10 +754,10 @@ void realloc_output_data()
 void execute_one()
 {
 	struct module_monitor_msg msg;
-    memset(&msg, 0, sizeof(struct module_monitor_msg));
+	memset(&msg, 0, sizeof(struct module_monitor_msg));
 	msg.op = START_MODULE_MONITOR;
-    ioctl(0, IOCTL_MODULE_MONITOR, &msg);
-	//ioctl(0, IOCTL_MODULE_MONITOR, "MAGIC?!START\x00");
+	ioctl(0, IOCTL_MODULE_MONITOR, &msg);
+	// ioctl(0, IOCTL_MODULE_MONITOR, "MAGIC?!START\x00");
 #if SYZ_EXECUTOR_USES_SHMEM
 	realloc_output_data();
 	output_pos = output_data;
@@ -968,10 +961,10 @@ void execute_one()
 	close_fds();
 #endif
 
-    memset(&msg, 0, sizeof(struct module_monitor_msg));
+	memset(&msg, 0, sizeof(struct module_monitor_msg));
 	msg.op = STOP_MODULE_MONITOR;
-    ioctl(0, IOCTL_MODULE_MONITOR, &msg);
-	//ioctl(0, IOCTL_MODULE_MONITOR, "MAGIC?!STOP\x00");
+	ioctl(0, IOCTL_MODULE_MONITOR, &msg);
+	// ioctl(0, IOCTL_MODULE_MONITOR, "MAGIC?!STOP\x00");
 
 	write_extra_output();
 	// Check for new extra coverage in small intervals to avoid situation
@@ -1320,7 +1313,7 @@ void execute_call(thread_t* th)
 		NONFAILING(execute_syscall(call, th->args));
 
 	info("#%d [%llums] <- %s=0x%llx",
-	      th->id, current_time_ms() - start_time_ms, call->name, (uint64)th->res);
+	     th->id, current_time_ms() - start_time_ms, call->name, (uint64)th->res);
 	if (th->res == (intptr_t)-1)
 		info(" errno=%d", th->reserrno);
 	if (flag_coverage)
