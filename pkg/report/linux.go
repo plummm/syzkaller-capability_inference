@@ -255,7 +255,7 @@ func ChooseCriticalCrash(output []byte) [][]int {
 	var crashRegx []*regexp.Regexp
 	//kasanRegx := regexp.MustCompile(`BUG: KASAN: ([a-z\\-]+) in ([a-zA-Z0-9_]+).*`)
 	//oobReadRegx := regexp.MustCompile(`\?!\?MAGIC\?!\?read->(\w*) size->(\d*)`)
-	crashRegx = append(crashRegx, regexp.MustCompile(`request_module:`))
+	crashRegx = append(crashRegx, regexp.MustCompile(`Allocate structure type:`))
 	for _, each := range crashRegx {
 		index = each.FindAllIndex(output, -1)
 		if len(index) > 0 {
@@ -2288,12 +2288,12 @@ var linuxOopses = append([]*oops{
 		[]*regexp.Regexp{},
 	},
 	{
-		[]byte("request_module:"),
+		[]byte("Allocate structure type:"),
 		[]oopsFormat{
 			{
-				title:  compile("request module"),
-				report: compile("request module \\[{{FUNC}}\\]"),
-				fmt:    "request module %[1]v",
+				title:  compile("Allocate structure type:"),
+				report: compile("Allocate structure type: {{FUNC}}\\|\\|\\|\\|\\|\\|\\|\\|{{TYPE}}\\|\\|\\|file:{{SRC}}"),
+				fmt:    "Allocate structure type: %[1]v",
 			},
 		},
 		[]*regexp.Regexp{},

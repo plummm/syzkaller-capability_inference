@@ -753,10 +753,6 @@ void realloc_output_data()
 // execute_one executes program stored in input_data.
 void execute_one()
 {
-	struct module_monitor_msg msg;
-	memset(&msg, 0, sizeof(struct module_monitor_msg));
-	msg.op = START_MODULE_MONITOR;
-	ioctl(0, IOCTL_MODULE_MONITOR, &msg);
 	// ioctl(0, IOCTL_MODULE_MONITOR, "MAGIC?!START\x00");
 #if SYZ_EXECUTOR_USES_SHMEM
 	realloc_output_data();
@@ -961,9 +957,6 @@ void execute_one()
 	close_fds();
 #endif
 
-	memset(&msg, 0, sizeof(struct module_monitor_msg));
-	msg.op = STOP_MODULE_MONITOR;
-	ioctl(0, IOCTL_MODULE_MONITOR, &msg);
 	// ioctl(0, IOCTL_MODULE_MONITOR, "MAGIC?!STOP\x00");
 
 	write_extra_output();

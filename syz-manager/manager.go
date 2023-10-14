@@ -348,6 +348,7 @@ func (mgr *Manager) vmLoop() {
 			reproQueue = append(reproQueue, crash)
 		}
 
+		write2knownModlue(mgr.cfg.Workdir, known_module)
 		log.Logf(1, "loop: phase=%v shutdown=%v instances=%v/%v %+v repro: pending=%v reproducing=%v queued=%v",
 			phase, shutdown == nil, instances.Len(), vmCount, instances.Snapshot(),
 			len(pendingRepro), len(reproducing), len(reproQueue))
@@ -409,8 +410,9 @@ func (mgr *Manager) vmLoop() {
 			// which we detect as "lost connection". Don't save that as crash.
 			if shutdown != nil && res.crash != nil {
 				needRepro := mgr.saveCrash(res.crash)
-				if needRepro {
+				if needRepro || res.crash.Corrupted {
 					module_name := extractModuleName(res.crash.Title)
+					log.Logf(0, "extract module: %v", module_name)
 					if _, ok := known_module[module_name]; !ok && module_name != "" {
 						log.Logf(1, "loop: add pending repro for '%v'", res.crash.Title)
 						pendingRepro[res.crash] = true
@@ -518,7 +520,7 @@ func (mgr *Manager) readKnownModule(known_module map[string]bool) {
 }
 
 func extractModuleName(title string) string {
-	re := regexp.MustCompile(`request_module: ([A-Za-z0-9_\.\-]+)`)
+	re := regexp.MustCompile(`Allocate structure type: (([A-Za-z0-9_\.\-]+)\|\|\|\|\|\|\|\|([A-Za-z0-9_ \.\-*]+)\|\|\|file:([\/a-z0-9A-Z\.\-_]+:[0-9]+))`)
 	m := re.FindAllSubmatch([]byte(title), -1)
 	if m == nil {
 		return ""

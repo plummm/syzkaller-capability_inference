@@ -11,6 +11,18 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
+#define IOCTL_MODULE_MONITOR 0x37777
+
+#define START_MODULE_MONITOR 0x1
+#define STOP_MODULE_MONITOR 0x2
+#define ADD_MODULE 0x3
+#define REMOVE_MODULE 0x4
+#define SET_FLAG 0x5
+#define CLEAR_LIST 0x6
+#define SHOW_MODULE_LIST 0x7
+#define ENABLE_DEBUG 0x77
+#define DISABLE_DEBUG 0x78
+
 const unsigned long KCOV_TRACE_PC = 0;
 const unsigned long KCOV_TRACE_CMP = 1;
 
@@ -68,9 +80,23 @@ static void os_init(int argc, char** argv, char* data, size_t data_size)
 
 static intptr_t execute_syscall(const call_t* c, intptr_t a[kMaxArgs])
 {
+	struct module_monitor_msg msg;
+	intptr_t ret;
+	memset(&msg, 0, sizeof(struct module_monitor_msg));
+	msg.op = START_MODULE_MONITOR;
+	ioctl(0, IOCTL_MODULE_MONITOR, &msg);
+	info("MAGIC?!START\n");
+	
 	if (c->call)
-		return c->call(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8]);
-	return syscall(c->sys_nr, a[0], a[1], a[2], a[3], a[4], a[5]);
+		ret = c->call(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8]);
+	else
+		ret = syscall(c->sys_nr, a[0], a[1], a[2], a[3], a[4], a[5]);
+
+	memset(&msg, 0, sizeof(struct module_monitor_msg));
+	msg.op = STOP_MODULE_MONITOR;
+	ioctl(0, IOCTL_MODULE_MONITOR, &msg);
+	info("MAGIC?!STOP\n");
+	return ret;
 }
 
 static void cover_open(cover_t* cov, bool extra)

@@ -33,6 +33,25 @@ typedef signed int ssize_t;
 #include <stdlib.h>
 #include <string.h>
 
+#define IOCTL_MODULE_MONITOR 0x37777
+
+#define START_MODULE_MONITOR 0x1
+#define STOP_MODULE_MONITOR 0x2
+#define ADD_MODULE 0x3
+#define REMOVE_MODULE 0x4
+#define SET_FLAG 0x5
+#define CLEAR_LIST 0x6
+#define SHOW_MODULE_LIST 0x7
+#define ENABLE_DEBUG 0x77
+#define DISABLE_DEBUG 0x78
+
+struct module_monitor_msg {
+	int op;
+	char* module_name;
+	size_t module_name_len;
+	unsigned int flag;
+};
+
 #if SYZ_TRACE
 #include <errno.h>
 #endif
@@ -10719,12 +10738,10 @@ void execute_one(void)
 void loop(void)
 #endif
 {
-	ioctl(0, 0x37777, "MAGIC?!START\x00");
 	/*{{{SYSCALLS}}}*/
 #if SYZ_HAVE_CLOSE_FDS && !SYZ_THREADED && !SYZ_REPEAT
 	close_fds();
 #endif
-	ioctl(0, 0x37777, "MAGIC?!STOP\x00");
 }
 #endif
 #if GOOS_akaros && SYZ_REPEAT
@@ -10735,7 +10752,11 @@ int main(int argc, char** argv)
 {
 	/*{{{MMAP_DATA}}}*/
 
-	ioctl(0, 0x37777, "MAGIC?!STOP\x00");
+	struct module_monitor_msg msg;
+	memset(&msg, 0, sizeof(struct module_monitor_msg));
+	msg.op = START_MODULE_MONITOR;
+	ioctl(0, IOCTL_MODULE_MONITOR, &msg);
+
 	program_name = argv[0];
 	if (argc == 2 && strcmp(argv[1], "child") == 0)
 		child();
@@ -10746,8 +10767,11 @@ int main(void)
 {
 	/*{{{MMAP_DATA}}}*/
 #endif
+	struct module_monitor_msg msg;
+	memset(&msg, 0, sizeof(struct module_monitor_msg));
+	msg.op = START_MODULE_MONITOR;
+	ioctl(0, IOCTL_MODULE_MONITOR, &msg);
 
-	ioctl(0, 0x37777, "MAGIC?!STOP\x00");
 #if SYZ_HAVE_SETUP_EXT
 	setup_ext();
 #endif

@@ -342,11 +342,11 @@ var dynamicTitleReplacement = []replacement{
 		regexp.MustCompile(`([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})`),
 		"IP",
 	},
-	{
+	/*{
 		// Replace that everything looks like a file line number with "LINE".
 		regexp.MustCompile(`(\.\w+)(:[0-9]+)+`),
 		"${1}:LINE",
-	},
+	},*/
 	{
 		// Replace all raw references to runctions (e.g. "ip6_fragment+0x1052/0x2d80")
 		// with just function name ("ip6_fragment"). Offsets and sizes are not stable.
@@ -368,7 +368,7 @@ var dynamicTitleReplacement = []replacement{
 }
 
 func sanitizeTitle(title string) string {
-	const maxTitleLen = 120 // Corrupted/intermixed lines can be very long.
+	const maxTitleLen = 240 // Corrupted/intermixed lines can be very long.
 	res := make([]byte, 0, len(title))
 	prev := byte(' ')
 	for i := 0; i < len(title) && i < maxTitleLen; i++ {
@@ -440,6 +440,7 @@ func compile(re string) *regexp.Regexp {
 	re = strings.Replace(re, "{{ADDR}}", "0x[0-9a-f]+", -1)
 	re = strings.Replace(re, "{{PC}}", "\\[\\<?(?:0x)?[0-9a-f]+\\>?\\]", -1)
 	re = strings.Replace(re, "{{FUNC}}", "([a-zA-Z0-9_]+)(?:\\.|\\+)", -1)
+	re = strings.Replace(re, "{{TYPE}}", "([A-Za-z0-9_.\\-*]+)(?:\\.|\\+)", -1)
 	re = strings.Replace(re, "{{SRC}}", "([a-zA-Z0-9-_/.]+\\.[a-z]+:[0-9]+)", -1)
 	return regexp.MustCompile(re)
 }

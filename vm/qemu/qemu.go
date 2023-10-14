@@ -418,7 +418,6 @@ func (inst *instance) ChangeSSHUser(newUser string) {
 func (inst *instance) boot() error {
 	inst.port = vmimpl.UnusedTCPPort()
 	inst.monport = vmimpl.UnusedTCPPort()
-	inst.image = vmimpl.UnusedImage(inst.image, &inst.lock)
 	args := []string{
 		"-m", strconv.Itoa(inst.cfg.Mem),
 		"-smp", strconv.Itoa(inst.cfg.CPU),
@@ -443,12 +442,45 @@ func (inst *instance) boot() error {
 			"-device", "virtio-9p-pci,fsdev=fsdev0,mount_tag=/dev/root",
 		)
 	} else if inst.image != "" {
-		args = append(args, "-drive",
-			fmt.Sprintf("file=%v,format=qcow2,cache=writeback,l2-cache-size=6553600,cache-clean-interval=900", inst.image))
+		if inst.archConfig.UseNewQemuImageOptions {
+			args = append(args,
+				"-device", "virtio-blk-device,drive=hd0",
+				"-drive", fmt.Sprintf("file=%v,if=none,format=raw,id=hd0", inst.image),
+			)
+		} else {
+			// inst.cfg.ImageDevice can contain spaces
+			imgline := strings.Split(inst.cfg.ImageDevice, " ")
+			imgline[0] = "-" + imgline[0]
+			if strings.HasSuffix(imgline[len(imgline)-1], "file=") {
+				imgline[len(imgline)-1] = imgline[len(imgline)-1] + inst.image
+			} else {
+				imgline = append(imgline, inst.image)
+			}
+			args = append(args, imgline...)
+		}
+		if inst.cfg.Snapshot {
+			args = append(args, "-snapshot")
+		}
 	}
 	if inst.cfg.Initrd != "" {
 		args = append(args,
 			"-initrd", inst.cfg.Initrd,
+		)
+	}
+	if inst.cfg.Kernel != "" {
+		cmdline := append([]string{}, inst.archConfig.CmdLine...)
+		if inst.image == "9p" {
+			cmdline = append(cmdline,
+				"root=/dev/root",
+				"rootfstype=9p",
+				"rootflags=trans=virtio,version=9p2000.L,cache=loose",
+				"init="+filepath.Join(inst.workdir, "init.sh"),
+			)
+		}
+		cmdline = append(cmdline, inst.cfg.Cmdline)
+		args = append(args,
+			"-kernel", inst.cfg.Kernel,
+			"-append", strings.Join(cmdline, " "),
 		)
 	}
 	if inst.cfg.EfiCodeDevice != "" {

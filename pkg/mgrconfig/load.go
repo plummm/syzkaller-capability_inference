@@ -230,9 +230,9 @@ func (cfg *Config) checkSSHParams() error {
 	if err != nil {
 		return err
 	}
-	if info.Mode()&0077 != 0 {
+	/*if info.Mode()&0077 != 0 {
 		return fmt.Errorf("sshkey %v is unprotected, ssh will reject it, do chmod 0600", cfg.SSHKey)
-	}
+	}*/
 	cfg.SSHKey = osutil.Abs(cfg.SSHKey)
 	return nil
 }
